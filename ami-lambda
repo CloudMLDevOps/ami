@@ -1,0 +1,59 @@
+import boto3
+import json
+from datetime import datetime
+
+def create_ami(event, context):
+    # Extracting instance ID from the JSON input
+    instance_id = event['InstanceID']
+    
+    # Creating a timestamp for AMI name
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    
+    # Initializing the EC2 client
+    ec2_client = boto3.client('ec2')
+    
+    try:
+        # Creating the AMI
+        response = ec2_client.create_image(
+            InstanceId=instance_id,
+            Name=f'AMI_{instance_id}_{timestamp}',
+            NoReboot=True
+        )
+        
+        # Retrieving the newly created AMI ID
+        ami_id = response['ImageId']
+        
+        # Retrieving tags from the instance
+        response_tags = ec2_client.describe_instances(InstanceIds=[instance_id])
+        tags = response_tags['Reservations'][0]['Instances'][0]['Tags']
+        
+        # Adding tags to the AMI
+        for tag in tags:
+            ec2_client.create_tags(Resources=[ami_id], Tags=[tag])
+        
+        # Adding additional tags from JSON payload
+        additional_tags = [
+            {'Key': 'ExpiryOn', 'Value': event['ExpiryOn']},
+            {'Key': 'User', 'Value': event['user']}
+        ]
+        ec2_client.create_tags(Resources=[ami_id], Tags=additional_tags)
+        
+        # Constructing the response
+        response_message = {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'AMI created successfully',
+                'AMI_ID': ami_id
+            })
+        }
+        
+    except Exception as e:
+        # Handling exceptions
+        response_message = {
+            'statusCode': 500,
+            'body': json.dumps({
+                'message': f'Error creating AMI: {str(e)}'
+            })
+        }
+    
+    return response_message
